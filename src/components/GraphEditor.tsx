@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -42,6 +42,9 @@ const GraphEditor = () => {
   const [zoom, setZoom] = useState(1);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isMobile] = useState(window.innerWidth < 768);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [lastTap, setLastTap] = useState(0);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -107,43 +110,62 @@ const GraphEditor = () => {
       )
     : edges;
 
-  const handleNodeMouseDown = (e: React.MouseEvent, nodeId: string) => {
-    if (e.button !== 0) return;
+  const handleNodePointerDown = (e: React.PointerEvent, nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
+    const clientX = e.clientX || (e as any).touches?.[0]?.clientX || 0;
+    const clientY = e.clientY || (e as any).touches?.[0]?.clientY || 0;
+
+    const currentTime = new Date().getTime();
+    const tapGap = currentTime - lastTap;
+
+    if (tapGap < 300 && tapGap > 0) {
+      setEditingNode(nodeId);
+      setLastTap(0);
+      return;
+    }
+    setLastTap(currentTime);
+
     setDragNode(nodeId);
     setSelectedNode(nodeId);
+    if (isMobile) setShowSidebar(true);
     setDragOffset({
-      x: (e.clientX - pan.x) / zoom - node.x,
-      y: (e.clientY - pan.y) / zoom - node.y,
+      x: (clientX - pan.x) / zoom - node.x,
+      y: (clientY - pan.y) / zoom - node.y,
     });
     e.stopPropagation();
   };
 
-  const handleCanvasMouseDown = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+  const handleCanvasPointerDown = (e: React.PointerEvent) => {
     if ((e.target as HTMLElement).closest('.graph-node')) return;
     
+    const clientX = e.clientX || (e as any).touches?.[0]?.clientX || 0;
+    const clientY = e.clientY || (e as any).touches?.[0]?.clientY || 0;
+
     setIsPanning(true);
-    setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+    setPanStart({ x: clientX - pan.x, y: clientY - pan.y });
     setSelectedNode(null);
+    if (isMobile) setShowSidebar(false);
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const clientX = e.clientX || (e as any).touches?.[0]?.clientX || 0;
+    const clientY = e.clientY || (e as any).touches?.[0]?.clientY || 0;
+
     if (dragNode) {
-      const newX = (e.clientX - pan.x) / zoom - dragOffset.x;
-      const newY = (e.clientY - pan.y) / zoom - dragOffset.y;
+      const newX = (clientX - pan.x) / zoom - dragOffset.x;
+      const newY = (clientY - pan.y) / zoom - dragOffset.y;
       setNodes(nodes.map(n => n.id === dragNode ? { ...n, x: newX, y: newY } : n));
     } else if (isPanning) {
       setPan({
-        x: e.clientX - panStart.x,
-        y: e.clientY - panStart.y,
+        x: clientX - panStart.x,
+        y: clientY - panStart.y,
       });
     }
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = () => {
     setDragNode(null);
     setIsPanning(false);
   };
@@ -159,36 +181,50 @@ const GraphEditor = () => {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      <header className="border-b bg-card px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Icon name="Network" size={24} className="text-primary" />
-          <h1 className="text-xl font-semibold">Графовый редактор</h1>
+      <header className="border-b bg-card px-3 md:px-6 py-3 md:py-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 md:gap-3 min-w-0">
+          <Icon name="Network" size={20} className="text-primary flex-shrink-0 md:w-6 md:h-6" />
+          <h1 className="text-base md:text-xl font-semibold truncate">Графовый редактор</h1>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Icon name="Search" size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Поиск по узлам..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 w-64"
-            />
-          </div>
-          <Button onClick={addNode} size="sm">
-            <Icon name="Plus" size={16} className="mr-2" />
-            Узел
+        <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+          <Button onClick={addNode} size="sm" className="h-8 md:h-9">
+            <Icon name="Plus" size={16} />
+            <span className="hidden sm:inline ml-2">Узел</span>
           </Button>
+          {selectedNode && isMobile && (
+            <Button 
+              onClick={() => setShowSidebar(!showSidebar)} 
+              size="sm" 
+              variant="outline"
+              className="h-8 md:h-9"
+            >
+              <Icon name="Edit" size={16} />
+            </Button>
+          )}
         </div>
       </header>
+
+      <div className="px-3 md:px-6 py-2 border-b">
+        <div className="relative">
+          <Icon name="Search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Поиск..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 text-sm"
+          />
+        </div>
+      </div>
 
       <div className="flex-1 flex overflow-hidden">
         <div
           ref={canvasRef}
-          className="flex-1 relative overflow-hidden cursor-grab active:cursor-grabbing"
-          onMouseDown={handleCanvasMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          className="flex-1 relative overflow-hidden touch-none select-none"
+          style={{ touchAction: 'none' }}
+          onPointerDown={handleCanvasPointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerUp}
           onWheel={handleWheel}
         >
           <svg
@@ -247,12 +283,11 @@ const GraphEditor = () => {
             {filteredNodes.map((node) => (
               <Card
                 key={node.id}
-                className={`graph-node absolute w-[150px] p-3 cursor-move transition-all ${
-                  selectedNode === node.id ? 'ring-2 ring-primary shadow-lg' : 'hover:shadow-md'
+                className={`graph-node absolute w-[140px] md:w-[150px] p-2 md:p-3 touch-none transition-all ${
+                  selectedNode === node.id ? 'ring-2 ring-primary shadow-lg' : 'active:shadow-md'
                 }`}
-                style={{ left: node.x, top: node.y }}
-                onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                onClick={() => setSelectedNode(node.id)}
+                style={{ left: node.x, top: node.y, cursor: 'grab' }}
+                onPointerDown={(e) => handleNodePointerDown(e, node.id)}
               >
                 {editingNode === node.id ? (
                   <Textarea
@@ -260,13 +295,10 @@ const GraphEditor = () => {
                     onChange={(e) => updateNodeText(node.id, e.target.value)}
                     onBlur={() => setEditingNode(null)}
                     autoFocus
-                    className="min-h-[60px] text-sm resize-none"
+                    className="min-h-[50px] md:min-h-[60px] text-xs md:text-sm resize-none"
                   />
                 ) : (
-                  <p
-                    className="text-sm min-h-[60px] break-words"
-                    onDoubleClick={() => setEditingNode(node.id)}
-                  >
+                  <p className="text-xs md:text-sm min-h-[50px] md:min-h-[60px] break-words">
                     {node.text}
                   </p>
                 )}
@@ -274,18 +306,20 @@ const GraphEditor = () => {
             ))}
           </div>
 
-          <div className="absolute bottom-4 right-4 flex gap-2">
+          <div className="absolute bottom-3 md:bottom-4 right-3 md:right-4 flex gap-1 md:gap-2">
             <Button
               size="icon"
               variant="secondary"
-              onClick={() => setZoom(prev => Math.min(prev + 0.1, 2))}
+              onClick={() => setZoom(prev => Math.min(prev + 0.2, 2))}
+              className="h-9 w-9 md:h-10 md:w-10 shadow-lg"
             >
               <Icon name="ZoomIn" size={18} />
             </Button>
             <Button
               size="icon"
               variant="secondary"
-              onClick={() => setZoom(prev => Math.max(prev - 0.1, 0.5))}
+              onClick={() => setZoom(prev => Math.max(prev - 0.2, 0.5))}
+              className="h-9 w-9 md:h-10 md:w-10 shadow-lg"
             >
               <Icon name="ZoomOut" size={18} />
             </Button>
@@ -293,6 +327,7 @@ const GraphEditor = () => {
               size="icon"
               variant="secondary"
               onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
+              className="h-9 w-9 md:h-10 md:w-10 shadow-lg"
             >
               <Icon name="Maximize2" size={18} />
             </Button>
@@ -300,77 +335,99 @@ const GraphEditor = () => {
         </div>
 
         {selectedNodeData && (
-          <aside className="w-80 border-l bg-card p-6 overflow-y-auto">
-            <div className="space-y-6">
+          <aside className={`
+            ${isMobile ? 'fixed inset-x-0 bottom-0 max-h-[70vh] rounded-t-2xl shadow-2xl' : 'w-80 border-l'}
+            ${isMobile && !showSidebar ? 'hidden' : 'block'}
+            bg-card p-4 md:p-6 overflow-y-auto z-50
+          `}>
+            {isMobile && (
+              <div className="w-12 h-1 bg-muted rounded-full mx-auto mb-4" />
+            )}
+            <div className="space-y-4 md:space-y-6">
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold">Редактирование узла</h3>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => deleteNode(selectedNode!)}
-                  >
-                    <Icon name="Trash2" size={18} />
-                  </Button>
+                <div className="flex items-center justify-between mb-3 md:mb-4">
+                  <h3 className="font-semibold text-sm md:text-base">Редактирование узла</h3>
+                  <div className="flex gap-1">
+                    {isMobile && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setShowSidebar(false)}
+                        className="h-8 w-8"
+                      >
+                        <Icon name="X" size={18} />
+                      </Button>
+                    )}
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => deleteNode(selectedNode!)}
+                      className="h-8 w-8"
+                    >
+                      <Icon name="Trash2" size={18} />
+                    </Button>
+                  </div>
                 </div>
                 <Textarea
                   value={selectedNodeData.text}
                   onChange={(e) => updateNodeText(selectedNode!, e.target.value)}
-                  className="min-h-[120px]"
+                  className="min-h-[100px] md:min-h-[120px] text-sm"
                   placeholder="Введите текст узла..."
                 />
               </div>
 
               <div>
-                <h3 className="font-semibold mb-3">Создать связь</h3>
+                <h3 className="font-semibold mb-2 md:mb-3 text-sm md:text-base">Создать связь</h3>
                 <div className="flex gap-2">
                   <Button
                     onClick={() => addEdge('primary')}
                     variant="default"
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 h-9 text-xs md:text-sm"
                   >
-                    <Icon name="ArrowRight" size={16} className="mr-2" />
+                    <Icon name="ArrowRight" size={14} className="mr-1 md:mr-2" />
                     Основная
                   </Button>
                   <Button
                     onClick={() => addEdge('alias')}
                     variant="secondary"
                     size="sm"
-                    className="flex-1"
+                    className="flex-1 h-9 text-xs md:text-sm"
                   >
-                    <Icon name="Link" size={16} className="mr-2" />
+                    <Icon name="Link" size={14} className="mr-1 md:mr-2" />
                     Псевдоним
                   </Button>
                 </div>
               </div>
 
               <div>
-                <h3 className="font-semibold mb-3">Связи узла</h3>
+                <h3 className="font-semibold mb-2 md:mb-3 text-sm md:text-base">Связи узла</h3>
                 {selectedNodeEdges.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Нет связей</p>
+                  <p className="text-xs md:text-sm text-muted-foreground">Нет связей</p>
                 ) : (
                   <div className="space-y-2">
                     {selectedNodeEdges.map((edge) => {
                       const otherNodeId = edge.from === selectedNode ? edge.to : edge.from;
                       const otherNode = nodes.find(n => n.id === otherNodeId);
-                      const direction = edge.from === selectedNode ? 'исходящая' : 'входящая';
                       
                       return (
                         <div
                           key={edge.id}
-                          className="flex items-center justify-between p-2 rounded bg-secondary text-sm"
+                          className="flex items-center justify-between p-2 rounded bg-secondary text-xs md:text-sm"
                         >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <Badge variant={edge.type === 'primary' ? 'default' : 'secondary'}>
+                          <div className="flex items-center gap-1 md:gap-2 flex-1 min-w-0">
+                            <Badge 
+                              variant={edge.type === 'primary' ? 'default' : 'secondary'}
+                              className="text-[10px] md:text-xs px-1.5 md:px-2"
+                            >
                               {edge.type === 'primary' ? 'primary' : 'alias'}
                             </Badge>
                             <Icon 
                               name={edge.from === selectedNode ? "ArrowRight" : "ArrowLeft"} 
-                              size={14} 
+                              size={12} 
                               className="flex-shrink-0"
                             />
-                            <span className="truncate">{otherNode?.text}</span>
+                            <span className="truncate text-xs">{otherNode?.text}</span>
                           </div>
                           <Button
                             size="icon"
@@ -378,7 +435,7 @@ const GraphEditor = () => {
                             className="h-6 w-6 flex-shrink-0"
                             onClick={() => deleteEdge(edge.id)}
                           >
-                            <Icon name="X" size={14} />
+                            <Icon name="X" size={12} />
                           </Button>
                         </div>
                       );
